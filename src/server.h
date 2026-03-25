@@ -1,7 +1,4 @@
-#ifndef SERVER_H
-#define SERVER_H
-
-#include <Arduino.h>
+#pragma once
 #include <WiFi.h>
 #include <WebServer.h>
 
@@ -9,7 +6,7 @@ class WiFiServerManager {
 public:
     WiFiServerManager();
     void begin();
-    void handle();  // يجب استدعاؤها داخل loop
+    void handle();
 
 private:
     WebServer server;
@@ -18,10 +15,24 @@ private:
 
     void startAP();
     void startStation();
+    void registerRoutes();   // ← add this line
+    void saveWiFiCredentials(const String &ssid, const String &password);
+    void loadWiFiCredentials();
+
+    // Pages
     void handleRoot();
     void handleSave();
-    void loadWiFiCredentials();
-    void saveWiFiCredentials(const String &ssid, const String &password);
-};
+    void handleConfig();
+    void handleSetSall();
+    void handleSetDelay();
+void handleSetServerIP();
+    // API endpoints
+    void handleApiStatus();
+    void handleApiRestart();
+    void handleApiReset();
 
-#endif
+    // HTML builder
+    String buildDashboardHTML(const String& activeTab);
+    //sen req
+};
+    String sendRequest(String serverPath, String uid) ;

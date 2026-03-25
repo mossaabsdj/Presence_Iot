@@ -98,7 +98,7 @@ int fingerEnrollNew() {
   int id = -1;
 
   // 1️⃣ إيجاد ID فارغ
-  for (int i = 1; i <= 1200; i++) { // IDs 1-127
+  for (int i = 1; i <= 127; i++) {
     String dummy;
     if (!fingerGetLinkedUid(i, dummy)) {
       id = i;
@@ -113,30 +113,30 @@ int fingerEnrollNew() {
 
   oledShowMessage("Enroll Finger\nID: " + String(id), 2, true, 1000);
 
-  // 2️⃣ تسجيل البصمة يحتاج 2-3 مرات
-  for (int step = 1; step <= 3; step++) {
-    oledShowMessage("Place finger\nStep " + String(step), 2, true, 0);
+  // -------- Step 1 --------
+  oledShowMessage("Place finger\nStep 1", 2, true, 0);
+  while (fp->getImage() != FINGERPRINT_OK) delay(100);
 
-    int p = -1;
-    while (p != FINGERPRINT_OK) {
-      p = fp->getImage();
-      delay(100);
-    }
-
-    if (fp->image2Tz(step) != FINGERPRINT_OK) {
-      oledShowMessage("Read Error\nStep " + String(step), 2, true, 300);
-      return -1;
-    }
-
-    if (step < 3) {
-      oledShowMessage("Lift finger\nand place again", 2, true, 1000);
-      delay(500);
-    }
+  if (fp->image2Tz(1) != FINGERPRINT_OK) {
+    oledShowMessage("Read Error\nStep 1", 2, true, 1000);
+    return -1;
   }
 
-  // 3️⃣ تخزين البصمة في ID
+  oledShowMessage("Lift finger", 2, true, 1500);
+  while (fp->getImage() != FINGERPRINT_NOFINGER) delay(100);
+
+  // -------- Step 2 --------
+  oledShowMessage("Place finger\nStep 2", 2, true, 0);
+  while (fp->getImage() != FINGERPRINT_OK) delay(100);
+
+  if (fp->image2Tz(2) != FINGERPRINT_OK) {
+    oledShowMessage("Read Error\nStep 2", 2, true, 1000);
+    return -1;
+  }
+
+  // -------- Create + Store --------
   if (fp->createModel() != FINGERPRINT_OK) {
-    oledShowMessage("Create Model\nFailed", 2, true, 1000);
+    oledShowMessage("Finger mismatch", 2, true, 1500);
     return -1;
   }
 
@@ -145,10 +145,9 @@ int fingerEnrollNew() {
     return -1;
   }
 
-  oledShowMessage("Enrolled ID: " + String(id), 2, true, 1000);
+  oledShowMessage("Enrolled ID: " + String(id), 2, true, 1500);
   return id;
 }
-
 bool fingerLinkUid(int fingerId, const String &uid) {
   if (fingerId < 0) return false;
 
