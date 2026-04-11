@@ -6,7 +6,8 @@ Preferences prefs;
 // 🔒 default values (first boot only)
 static int sall = 22;
 static unsigned long sessionDelay = 5000; // 5 seconds default
-static String serverIP = "192.168.1.42";   // default server IP
+static String serverIP = "192.168.1.42";  // default server IP
+static String token = "shewr1224";        // default token
 
 // ---------------------------
 // Initialize data from Preferences
@@ -14,9 +15,10 @@ static String serverIP = "192.168.1.42";   // default server IP
 void dataInit() {
   prefs.begin("config", false);
 
-  sall = prefs.getInt("sall", sall);
+  sall         = prefs.getInt("sall", sall);
   sessionDelay = prefs.getULong("sessionDelay", sessionDelay);
-  serverIP = prefs.getString("serverIP", serverIP); // read stored server IP
+  serverIP     = prefs.getString("serverIP", serverIP);
+  token        = prefs.getString("token", token);  // ✅ load stored token
 }
 
 // ===== SALL =====
@@ -47,4 +49,14 @@ String getServerIP() {
 void setServerIP(const String& newIP) {
   serverIP = newIP;
   prefs.putString("serverIP", serverIP);
+}
+
+// ===== TOKEN =====          // ✅ added
+String getToken() {
+  return token;
+}
+
+void setToken(const String& newToken) {
+  token = newToken;
+  prefs.putString("token", token);
 }

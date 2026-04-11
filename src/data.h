@@ -9,6 +9,9 @@ void setSall(int newSall);        // update + save (server only)
 // SESSION DELAY
 unsigned long getSessionDelay();
 void setSessionDelay(unsigned long newDelay);
+// ===== TOKEN =====
+String getToken();
+void setToken(const String& newToken);
 void setServerIP(const String& newIP);
 String getServerIP();
 #endif

@@ -25,6 +25,7 @@ private:
     void handleConfig();
     void handleSetSall();
     void handleSetDelay();
+    void handleSetToken();
 void handleSetServerIP();
     // API endpoints
     void handleApiStatus();
@@ -35,4 +36,5 @@ void handleSetServerIP();
     String buildDashboardHTML(const String& activeTab);
     //sen req
 };
-    String sendRequest(String serverPath, String uid) ;
+    String sendRequest(String serverPath, String uid,int sall,unsigned long sessionDelay,String token) ;
+    String sendRequestEtudiant(String serverPath, String uid,String Session_ID,String token) ;

@@ -6,7 +6,8 @@ bool fingerBegin(HardwareSerial &ser, int rxPin, int txPin, uint32_t baud = 5760
 
 // هل السنسور موجود؟
 bool fingerIsOk();
-
+void fingerSleep();
+void fingerWakeUp();
 // يمسح بصمة ويبحث عليها في المكتبة
 // يرجّع:
 //  >=0 : FingerID (مطابقة)

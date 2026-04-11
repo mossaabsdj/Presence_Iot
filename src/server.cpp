@@ -43,12 +43,22 @@ void WiFiServerManager::loadWiFiCredentials() {
     wifiSSID = String(ssid);
     wifiPassword = String(pass);
 }
-
+void WiFiServerManager::handleSetToken() {
+    if (server.hasArg("token")) {
+        String newToken = server.arg("token");
+        setToken(newToken);
+        oledShowMessage("Token Updated", 2, true, 1500);
+        server.sendHeader("Location", "/config");
+        server.send(303);
+    } else {
+        server.send(400, "text/plain", "Missing token value");
+    }
+}
 // ===== AP Mode =====
 void WiFiServerManager::startAP() {
-    oledShowMessage("AP Mode WiFi Setup", 2, true, 1000);
-    WiFi.softAP("ESP32_" + String(getSall()));
-    oledShowMessage("AP IP:\n" + WiFi.softAPIP().toString(), 2, true, 1000);
+    //oledShowMessage("AP Mode WiFi Setup", 2, true, 1000);
+    WiFi.softAP("ESP32_" + String(getSall()),"admin123");
+    //oledShowMessage("AP IP:\n" + WiFi.softAPIP().toString(), 2, true, 1000);
 
     server.on("/",           std::bind(&WiFiServerManager::handleRoot,      this));
     server.on("/save",       HTTP_POST, std::bind(&WiFiServerManager::handleSave,      this));
@@ -56,17 +66,18 @@ void WiFiServerManager::startAP() {
     server.on("/set-sall",   HTTP_POST, std::bind(&WiFiServerManager::handleSetSall,   this));
     server.on("/set-server-ip", HTTP_POST, std::bind(&WiFiServerManager::handleSetServerIP, this));
     server.on("/api/status", std::bind(&WiFiServerManager::handleApiStatus, this));
+    server.on("/set-token", HTTP_POST, std::bind(&WiFiServerManager::handleSetToken, this));  // ✅
     server.on("/api/restart",HTTP_POST, std::bind(&WiFiServerManager::handleApiRestart,this));
     server.on("/api/reset",  HTTP_POST, std::bind(&WiFiServerManager::handleApiReset,  this));
 server.on("/set-delay", HTTP_POST,
           std::bind(&WiFiServerManager::handleSetDelay, this));
     server.begin();
-    oledShowMessage("HTTP Server Started", 2, true, 1000);
+   // oledShowMessage("HTTP Server Started", 2, true, 1000);
 }
 
 // ===== Station Mode =====
 void WiFiServerManager::startStation() {
-    oledShowMessage("Connecting to Wi-Fi:\n" + wifiSSID, 2, true, 1000);
+    oledShowMessage("Connecting to Wi-Fi:\n" + wifiSSID, 2, true, 200);
     WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
 
     int attempts = 0;
@@ -216,6 +227,7 @@ void WiFiServerManager::handleSetDelay() {
 // ===== Build Full Dashboard HTML =====
 String WiFiServerManager::buildDashboardHTML(const String& activeTab) {
     int sall = getSall();
+    String token=getToken();
     unsigned long delayMin = getSessionDelay() / 60000UL;
  String SERVER_IP=getServerIP();
   String html = R"rawliteral(<!DOCTYPE html>
@@ -527,6 +539,11 @@ String WiFiServerManager::buildDashboardHTML(const String& activeTab) {
   <input type="text" name="serverIP" value="%SERVER_IP%" required>
   <button type="submit" class="btn btn-primary btn-full">Update Server IP</button>
 </form>
+<form action="/set-token" method="POST" class="form-group" style="margin-top:12px">
+  <label>Device Token</label>
+  <input type="text" name="token" value="%TOKEN%" required>
+  <button type="submit" class="btn btn-primary btn-full">Update Token</button>
+</form>
     </div>
 
     <!-- Device Actions Card -->
@@ -677,12 +694,17 @@ setInterval(loadStatus, 5000);
 html.replace("%SALL%", String(sall));
 html.replace("%SERVER_IP%", SERVER_IP);
 html.replace("%DELAY%", String(delayMin));
+html.replace("%TOKEN%",     String(token));  // ✅
+
     return html;
 }
 
 
 
-String sendRequest(String serverPath, String uid) {
+
+
+
+String sendRequest(String serverPath, String uid, int sall, unsigned long sessionDelay, String token) {
 
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected");
@@ -692,46 +714,64 @@ String sendRequest(String serverPath, String uid) {
   HTTPClient http;
   http.begin(serverPath);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-device-token", token);
 
-  String jsonBody = "{\"uid\":\"" + uid + "\"}";
+  String jsonBody = "{";
+  jsonBody += "\"uid\":\"" + uid + "\",";
+  jsonBody += "\"sall\":" + String(sall) + ",";
+  jsonBody += "\"sessionDelay\":" + String(sessionDelay);
+  jsonBody += "}";
+
+  int httpResponseCode = http.POST(jsonBody);
+
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    response.trim();
+    http.end();
+    return response;                // return raw JSON, don't strip quotes
+  } else {
+    Serial.println("HTTP Error: " + String(httpResponseCode));
+    http.end();
+    if (httpResponseCode == -1)  return "ERROR_CONNECT";
+    if (httpResponseCode == 404) return "ERROR_404";
+    return "ERROR";
+  }
+}
+  
+
+String sendRequestEtudiant(String serverPath, String uid, String Session_ID,String token) {
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected");
+    return "ERROR_WIFI";
+  }
+
+  HTTPClient http;
+  http.begin(serverPath);
+  http.addHeader("Content-Type", "application/json");
+http.addHeader("x-device-token", token);
+
+  String jsonBody = "{";
+  jsonBody += "\"uid\":\"" + uid + "\",";
+  jsonBody += "\"Session_ID\":\"" + Session_ID + "\"";
+  jsonBody += "\"token\":" + String(token);
+  jsonBody += "}";
 
   int httpResponseCode = http.POST(jsonBody);
 
   if (httpResponseCode > 0) {
     String response = http.getString();
 
-    // Clean response
     response.trim();
     response.replace("\"", "");
     response.replace("\n", "");
     response.replace("\r", "");
-
     http.end();
     return response;
 
   } else {
-    // Handle wrong API / server unreachable
     Serial.println("HTTP Error: " + String(httpResponseCode));
-
-    if (httpResponseCode == 404) {
-      Serial.println("API Not Found (404) — check your server path!");
-      http.end();
-      return "ERROR_404";
-    }
-
-    if (httpResponseCode == 500) {
-      Serial.println("Server Error (500)");
-      http.end();
-      return "ERROR_500";
-    }
-
-    if (httpResponseCode == 0) {
-      Serial.println("Cannot connect to server — check IP / WiFi");
-      http.end();
-      return "ERROR_CONNECT";
-    }
-
     http.end();
-    return "ERROR_CONNECT";
+    return "ERROR";
   }
 }
