@@ -34,7 +34,7 @@ String token = "";
 
 bool enrollMode = false;
 String response = "";
-
+String Session_ID="";
 // ===== Green LED blink state =====
 unsigned long lastGreenToggle = 0;
 bool greenState = false;
@@ -86,7 +86,41 @@ void blinkGreenLed() {
     digitalWrite(LED_GREEN_PIN, greenState ? HIGH : LOW);
   }
 }
+// ===== Notify server that session ended =====
+void endSession(String session_id) {
+  String raw = sendRequest(
+    "http://" + getServerIP() + ":3000/api/external/esp32/EndSession",
+    session_id, sallName, sessionDuration, token
+  );
 
+  if (raw == "ERROR_WIFI" || raw == "ERROR_CONNECT" || raw == "ERROR_404" || raw == "ERROR") {
+    Serial.println("[EndSession] Network error: " + raw);
+    return; // close locally anyway
+  }
+
+  StaticJsonDocument<256> doc;
+  DeserializationError err = deserializeJson(doc, raw);
+  if (err) {
+    Serial.println("[EndSession] JSON parse error: " + String(err.c_str()));
+    return;
+  }
+
+  String code = doc["code"] | "";
+  String desc = doc["description"] | "";
+
+  if (code == "SESSION_CLOSED") {
+    Serial.println("[EndSession] Server confirmed session closed.");
+  } else if (code == "INVALID_TOKEN") {
+    Serial.println("[EndSession] Invalid token: " + desc);
+  } else if (code == "SESSION_NOT_FOUND") {
+    Serial.println("[EndSession] Session not found: " + desc);
+  } else if (code == "SERVER_ERROR") {
+    Serial.println("[EndSession] Server error: " + desc);
+  } else {
+    Serial.println("[EndSession] Unknown code: " + code);
+  }
+  // always falls through — session closes locally regardless
+}
 void showRedAlert(int durationMs) {
   redActive = true;
   digitalWrite(LED_GREEN_PIN, LOW);
@@ -103,10 +137,10 @@ void setup() {
   mySerial.begin(115200, SERIAL_8N1, RXD2, TXD2);
   Serial.println("DFPlayer démarré");
 
-  token = getToken();
   dataInit();
   sallName = getSall();
   sessionDuration = getSessionDelay();
+  token = getToken();
 
   enrollMode = false;
 
@@ -197,24 +231,74 @@ void handleEnrollAndFinger(String session_id, ButtonResult btn) {
         delay(200);
         digitalWrite(BUZZER_PIN, LOW);
 
-        String msg = sendRequestEtudiant(
-          "http://" + getServerIP() + ":3000/api/CheckEtudiant",
-          finalUid, session_id, token
-        );
+      String raw = sendRequestEtudiant(
+  "http://" + getServerIP() + ":3000/api/external/esp32/student",
+  finalUid, session_id, token
+);
 
-        if (msg == "false") {
-          PlaySound(5);
-          showRedAlert(1500);
-          PlaySound(12);
-          oledShowMessage("Étudiant non reconnu", 2, true, 800);
-        } else if (msg == "ERROR" || msg == "ERROR_WIFI") {
-          PlaySound(4);
-          oledShowMessage("Erreur serveur", 2, true, 800);
-        } else if (msg != "" && msg != "null") {
-          PlaySound(11);
-          oledShowMessage("Présence enregistrée", 2, true, 800);
-        }
+// ── Network errors ───────────────────────────────────────────────
+if (raw == "ERROR_WIFI" || raw == "ERROR_CONNECT" || raw == "ERROR_404" || raw == "ERROR") {
+  PlaySound(4);
+  oledShowMessage("Erreur serveur", 2, true, 800);
+  return;
+}
 
+// ── Parse JSON ───────────────────────────────────────────────────
+StaticJsonDocument<256> docEtudiant;
+DeserializationError errEtudiant = deserializeJson(docEtudiant, raw);
+
+if (errEtudiant) {
+  PlaySound(4);
+  oledShowMessage("Réponse invalide!", 2, true, 800);
+  return;
+}
+
+String codeEtudiant = docEtudiant["code"] | "";
+String descEtudiant = docEtudiant["description"] | "";
+
+// ── INVALID_TOKEN ────────────────────────────────────────────────
+if (codeEtudiant == "INVALID_TOKEN") {
+  PlaySound(4);
+  oledShowMessage("Token invalide!", 2, true, 800);
+  Serial.println("[CheckEtudiant] " + descEtudiant);
+}
+
+// ── MISSING_UID ──────────────────────────────────────────────────
+else if (codeEtudiant == "MISSING_UID") {
+  PlaySound(4);
+  oledShowMessage("UID manquant!", 2, true, 800);
+  Serial.println("[CheckEtudiant] " + descEtudiant);
+}
+
+// ── STUDENT_NOT_FOUND ────────────────────────────────────────────
+else if (codeEtudiant == "STUDENT_NOT_FOUND") {
+  PlaySound(5);
+  showRedAlert(1500);
+  PlaySound(12);
+  oledShowMessage("Étudiant\nnon reconnu", 2, true, 800);
+  Serial.println("[CheckEtudiant] " + descEtudiant);
+}
+
+// ── SERVER_ERROR ─────────────────────────────────────────────────
+else if (codeEtudiant == "SERVER_ERROR") {
+  PlaySound(4);
+  oledShowMessage("Erreur serveur!", 2, true, 800);
+  Serial.println("[CheckEtudiant] " + descEtudiant);
+}
+
+// ── ATTENDANCE_MARKED ────────────────────────────────────────────
+else if (codeEtudiant == "ATTENDANCE_MARKED") {
+  PlaySound(11);
+  oledShowMessage("Présence enregistrée", 2, true, 800);
+  Serial.println("[CheckEtudiant] OK - session: " + String(docEtudiant["session_id"] | ""));
+}
+
+// ── Inattendu ────────────────────────────────────────────────────
+else {
+  PlaySound(4);
+  oledShowMessage("Réponse\ninattendue!", 2, true, 800);
+  Serial.println("[CheckEtudiant] Unknown code: " + codeEtudiant);
+}
       } else {
         oledShowMessage("Pas de carte liée\nScanner la carte", 2, true, 0);
         String cardUid;
@@ -246,6 +330,8 @@ void loop() {
     unsigned long elapsed = millis() - sessionStartTime;
 
     if (elapsed >= sessionDuration) {
+        endSession(Session_ID);           // <-- notify server first
+
       sessionActive = false;
       enrollMode    = false;
       fingerSleep();
@@ -270,6 +356,8 @@ void loop() {
         digitalWrite(BUZZER_PIN, HIGH);
         delay(200);
         digitalWrite(BUZZER_PIN, LOW);
+          endSession(Session_ID);           // <-- notify server first
+
         sessionActive = false;
         enrollMode    = false;
         fingerSleep();
@@ -313,7 +401,7 @@ void loop() {
 
   oledShowMessage("Connexion serveur...", 2, true, 0);
  response = sendRequest(
-    "http://" + getServerIP() + ":3000/api/CheckProf",
+    "http://" + getServerIP() + ":3000/api/external/esp32/professor",
     cardUid, sallName, sessionDuration, token
   );
 
@@ -383,6 +471,15 @@ void loop() {
     Serial.println("[CheckProf] " + desc);
     return;
   }
+  //____Aucun cours trouvé pour le moment
+  if (code == "NO_SCHEDULE") {
+    PlaySound(5); // TTS: "Aucun cours trouvé pour le moment"
+    showRedAlert(1500);
+    PlaySound(2); // TTS: "Accès refusé"
+    oledShowMessage("Aucun cours trouvé pour le moment", 1, true, 800);
+    Serial.println("Aucun cours trouvé pour le moment " + desc);
+    return;
+  }
 
   // ── Erreur serveur ───────────────────────────────────────────────
   if (code == "SERVER_ERROR") {
@@ -394,9 +491,9 @@ void loop() {
 
   // ── Session ouverte ──────────────────────────────────────────────
   if (code == "SESSION_OPENED") {
-    String sessionId = doc["session_id"] | "";
+     Session_ID = doc["session_id"] | "";
 
-    if (sessionId == "") {
+    if (Session_ID == "") {
       PlaySound(4); // TTS: "Session ID manquant"
       oledShowMessage("Session ID\nmanquant!", 2, true, 1000);
       Serial.println("[CheckProf] SESSION_OPENED but no session_id in response");
@@ -408,8 +505,8 @@ void loop() {
     sessionStartTime = millis();
     sessionUid       = cardUid;
     fingerWakeUp();
-    oledShowMessage("Accès accordé\n" + sessionId, 1, true, 2000);
-    handleEnrollAndFinger(sessionId, btn);
+    oledShowMessage("Accès accordé\n" + Session_ID, 1, true, 2000);
+    handleEnrollAndFinger(Session_ID, btn);
     return;
   }
 

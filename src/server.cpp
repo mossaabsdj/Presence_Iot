@@ -102,8 +102,7 @@ void WiFiServerManager::startStation() {
         oledShowMessage("Failed to connect\nStarting AP...", 2, true, 800);
         wifiSSID = "";
         
-        startAP();
-    }
+startStation();    }
 }
 
 // ===== API: System Status (JSON) =====
